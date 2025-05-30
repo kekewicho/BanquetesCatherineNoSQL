@@ -11,7 +11,6 @@ class Ingrediente:
 
     __collection__ = "ingredientes"
 
-
 @dataclass(kw_only=True)
 class Platillo:
 
@@ -23,7 +22,6 @@ class Platillo:
     ingredientes: list[dict]
 
     __collection__ = "platillos"
-
 
 @dataclass(kw_only=True)
 class Evento:
