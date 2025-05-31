@@ -235,7 +235,7 @@ def crearEvento():
 
     try:
         cliente_obj_id = ObjectId(data['cliente_id'])
-        if not db.usuarios.find_one({'_id': cliente_obj_id, 'role': 'cliente'}):
+        if not db.usuarios.find_one({'_id': cliente_obj_id, 'role': 'CLIENTE'}):
             return jsonify({"mensaje": "Cliente no encontrado"}), 404
 
         salon_obj_id = ObjectId(data['salon'])
@@ -247,8 +247,7 @@ def crearEvento():
             return jsonify({"mensaje": "Uno o más platillos no son válidos"}), 404
 
         plantilla_obj_ids = [ObjectId(sid) for sid in data['plantilla']]
-
-        colaboradores = db.usuarios.find({'_id': {'$in': plantilla_obj_ids}, 'role': 'colaborador'})
+        colaboradores = db.usuarios.find({'_id': {'$in': plantilla_obj_ids}, 'role': 'COLABORADOR'})
         colaboradores_ids = {c['_id'] for c in colaboradores}
         if len(colaboradores_ids) != len(plantilla_obj_ids):
             return jsonify({"mensaje": "Todos los miembros de la plantilla deben ser COLABORADORES"}), 400
@@ -260,19 +259,18 @@ def crearEvento():
         "fecha": data['fecha'],
         "tipo": data['tipo'],
         "descripcion": data['descripcion'],
-        "menu": menu_obj_ids,
-        "plantilla": plantilla_obj_ids,
-        "salon": salon_obj_id,
+        "menu": [str(pid) for pid in menu_obj_ids],
+        "plantilla": [str(sid) for sid in plantilla_obj_ids],
+        "salon": str(salon_obj_id),
         "invitados": int(data['invitados']),
         "validated": data.get('validated', True),
-        "cliente_id": cliente_obj_id
+        "cliente_id": str(cliente_obj_id)
     }
 
     new_event = Evento(**event_data_dict)
     try:
         inserted_id = new_event.save()
-        created_event_doc = db.eventos.find_one({'_id': inserted_id})
-        return jsonify(enrich_event_details(created_event_doc)), 201
+        return jsonify(new_event.json(enrich=True)), 201
     except Exception as e:
         return jsonify({"mensaje": f"Error al crear evento: {str(e)}"}), 500
 
@@ -460,119 +458,6 @@ def get_required_ingredients():
             })
     return jsonify(results), 200 
 
-@banquet_admin_bp.route('/procurement/deliveries', methods=['POST'])
-@roles_required(allowed_roles=['admin_banquetes'])
-def record_delivery():
-    data = request.get_json()
-    if not data.get('ingredientes') or not data.get('fecha_entrega'):
-        return jsonify({"mensaje": "Campos 'ingredientes' y 'fecha_entrega' son requeridos."}), 400
-
-    
-    
-    processed_ingredientes = []
-    for item in data['ingredientes']:
-        if not item.get('ingrediente_id') or not item.get('cantidad'):
-            return jsonify({"mensaje": "Cada ingrediente debe tener 'ingrediente_id' y 'cantidad'."}), 400
-        try:
-            processed_ingredientes.append({
-                "ingrediente": ObjectId(item['ingrediente_id']), 
-                "cantidad": item['cantidad'],
-                "unidad_compra": item.get('unidad_compra', '') 
-            })
-        except Exception:
-             return jsonify({"mensaje": f"ID de ingrediente inválido: {item.get('ingrediente_id')}"}), 400
-
-
-    delivery_data_dict = {
-        "ingredientes": processed_ingredientes, 
-        "fecha_creacion": data.get('fecha_creacion', datetime.now().strftime("%Y-%m-%d")), 
-        "fecha_entrega": data['fecha_entrega']
-    }
-    
-    new_delivery = Delivery(**delivery_data_dict)
-    try:
-        inserted_id = new_delivery.save()
-        created_delivery_doc = db.procurement.find_one({'_id': inserted_id}) 
-        
-        
-        enriched_delivery = Delivery(**created_delivery_doc).json()
-        if 'ingredientes' in enriched_delivery:
-            enriched_items = []
-            for item_dict in created_delivery_doc['ingredientes']: 
-                ing_id = item_dict.get('ingrediente')
-                ing_doc_detail = db.ingredientes.find_one({'_id': ObjectId(ing_id)})
-                enriched_items.append({
-                    "ingrediente": Ingrediente(**ing_doc_detail).json() if ing_doc_detail else None,
-                    "cantidad": item_dict.get('cantidad'),
-                    "unidad_compra": item_dict.get('unidad_compra')
-                })
-            enriched_delivery['ingredientes'] = enriched_items
-        return jsonify(enriched_delivery), 201 
-    except Exception as e:
-        return jsonify({"mensaje": f"Error al registrar entrega: {str(e)}"}), 500
-
-@banquet_admin_bp.route('/procurement/deliveries', methods=['GET'])
-@roles_required(allowed_roles=['admin_banquetes'])
-def get_all_deliveries():
-    query = {}
-    
-    
-    
-    if request.args.get('from_date'):
-        query['fecha_entrega'] = {'$gte': request.args.get('from_date')}
-    if request.args.get('to_date'):
-        query.setdefault('fecha_entrega', {})['$lte'] = request.args.get('to_date')
-
-    deliveries_cursor = db.procurement.find(query).sort("fecha_entrega", -1)
-    
-    deliveries_list = []
-    for d_doc in deliveries_cursor:
-        enriched_d = Delivery(**d_doc).json()
-        if 'ingredientes' in enriched_d: 
-            enriched_items = []
-            for item_dict in d_doc['ingredientes']:
-                ing_id = item_dict.get('ingrediente')
-                ing_doc_detail = db.ingredientes.find_one({'_id': ObjectId(ing_id)})
-                enriched_items.append({
-                    "ingrediente": Ingrediente(**ing_doc_detail).json() if ing_doc_detail else None,
-                    "cantidad": item_dict.get('cantidad'),
-                    "unidad_compra": item_dict.get('unidad_compra')
-                })
-            enriched_d['ingredientes'] = enriched_items
-        deliveries_list.append(enriched_d)
-    return jsonify(deliveries_list), 200
-
-@banquet_admin_bp.route('/ingredients/<string:ingredient_id>/deliveries', methods=['GET'])
-@roles_required(allowed_roles=['admin_banquetes'])
-def get_deliveries_for_ingredient(ingredient_id):
-    try:
-        ing_obj_id = ObjectId(ingredient_id)
-    except Exception:
-        return jsonify({"mensaje": "ID de ingrediente inválido"}), 400
-
-    
-    deliveries_cursor = db.procurement.find({'ingredientes.ingrediente': ing_obj_id}).sort("fecha_entrega", -1)
-    
-    deliveries_list = []
-    for d_doc in deliveries_cursor: 
-        enriched_d = Delivery(**d_doc).json() 
-        
-        
-        enriched_items_for_delivery = []
-        for item_in_delivery in d_doc.get('ingredientes', []):
-            ing_detail_id = item_in_delivery.get('ingrediente') 
-            ing_detail_doc = db.ingredientes.find_one({'_id': ObjectId(ing_detail_id)})
-            
-            enriched_items_for_delivery.append({
-                "ingrediente": Ingrediente(**ing_detail_doc).json() if ing_detail_doc else None,
-                "cantidad": item_in_delivery.get('cantidad'),
-                "unidad_compra": item_in_delivery.get('unidad_compra')
-            })
-        enriched_d['ingredientes'] = enriched_items_for_delivery
-        deliveries_list.append(enriched_d)
-        
-    return jsonify(deliveries_list), 200
-
 # CRUD de ingredientes
 
 @banquet_admin_bp.route('/ingredients', methods=['GET'])
@@ -652,8 +537,7 @@ def delete_ingredient_admin(ingredient_id):
 # CRUD platillos
 
 @banquet_admin_bp.route('/platillos', methods=['GET'])
-@roles_required(allowed_roles=['admin_banquetes'])
-def get_all_platillos_admin():
+def obtenerPlatillos():
     query = {}
     tipo_platillo_filter = request.args.get('tipo_platillo')
     if tipo_platillo_filter:
@@ -664,8 +548,7 @@ def get_all_platillos_admin():
     return jsonify(platillos_list), 200
 
 @banquet_admin_bp.route('/platillos', methods=['POST'])
-@roles_required(allowed_roles=['admin_banquetes'])
-def create_platillo_admin():
+def crearPlatillo():
     data = request.get_json()
     req_fields = ['nombre', 'descripcion', 'tipo_platillo', 'precio', 'ingredientes']
     if not all(field in data for field in req_fields):
@@ -702,8 +585,7 @@ def create_platillo_admin():
         return jsonify({"mensaje": f"Error al crear platillo: {e}"}), 500
 
 @banquet_admin_bp.route('/platillos/<string:platillo_id>', methods=['PUT'])
-@roles_required(allowed_roles=['admin_banquetes'])
-def update_platillo_admin(platillo_id):
+def actualizarPlatillo(platillo_id):
     data = request.get_json()
     try:
         p_obj_id = ObjectId(platillo_id)
@@ -743,8 +625,7 @@ def update_platillo_admin(platillo_id):
     return jsonify({"mensaje": "No se pudo actualizar o no hubo cambios"}), 304
 
 @banquet_admin_bp.route('/platillos/<string:platillo_id>', methods=['DELETE'])
-@roles_required(allowed_roles=['admin_banquetes'])
-def delete_platillo_admin(platillo_id):
+def borrarPlatillo(platillo_id):
     try:
         p_obj_id = ObjectId(platillo_id)
     except:
@@ -758,7 +639,6 @@ def delete_platillo_admin(platillo_id):
 #CRUD de salones
 
 @banquet_admin_bp.route('/salons', methods=['GET'])
-@roles_required(allowed_roles=['admin_banquetes'])
 def obtenerSalones():
     salones_cursor = db.salones.find()
     salones_list = [Salon(**s).json() for s in salones_cursor]
@@ -785,7 +665,6 @@ def agregarSalon():
         return jsonify({"mensaje": f"Error al crear salón: {e}"}), 500
 
 @banquet_admin_bp.route('/salons/<string:salon_id>', methods=['PUT'])
-@roles_required(allowed_roles=['admin_banquetes'])
 def actualizarSalon(salon_id):
     data = request.get_json()
     try:
@@ -810,7 +689,6 @@ def actualizarSalon(salon_id):
     return jsonify({"mensaje": "No se pudo actualizar o no hubo cambios"}), 304
 
 @banquet_admin_bp.route('/salons/<string:salon_id>', methods=['DELETE'])
-@roles_required(allowed_roles=['admin_banquetes'])
 def borrarSalon(salon_id):
     try:
         s_obj_id = ObjectId(salon_id)
@@ -821,37 +699,3 @@ def borrarSalon(salon_id):
     if result.deleted_count > 0:
         return jsonify({"message": "Salón eliminado."}), 200
     return jsonify({"mensaje": "Salón no encontrado."}), 404
-
-#CRUD notificaciones
-
-@banquet_admin_bp.route('/notifications', methods=['GET'])
-@roles_required(allowed_roles=['admin_banquetes'])
-def get_notifications():
-    
-    query = {}
-    is_read_filter = request.args.get('is_read')
-    if is_read_filter is not None:
-        query['is_read'] = is_read_filter.lower() == 'true'
-        
-    notifications_cursor = db.notifications.find(query).sort("timestamp", -1) 
-    
-    
-    notif_list = [Base._Base__remove_oid(n) for n in notifications_cursor]
-    return jsonify(notif_list), 200 
-
-@banquet_admin_bp.route('/notifications/<string:notification_id>/read', methods=['PUT'])
-@roles_required(allowed_roles=['admin_banquetes'])
-def mark_notification_as_read(notification_id):
-    try:
-        notif_obj_id = ObjectId(notification_id)
-    except:
-        return jsonify({"mensaje": "ID de notificación inválido"}), 400
-
-    result = db.notifications.update_one(
-        {'_id': notif_obj_id},
-        {'$set': {'is_read': True}}
-    )
-    if result.modified_count > 0:
-        return jsonify({"message": "Notification marked as read."}), 200 
-    
-    return jsonify({"mensaje": "Notificación no encontrada o ya marcada como leída"}), 404

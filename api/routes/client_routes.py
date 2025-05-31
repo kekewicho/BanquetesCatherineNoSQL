@@ -9,54 +9,56 @@ from datetime import datetime, timedelta
 
 clients_bp = Blueprint('clients_bp', __name__)
 
-# Helper for enriching Evento, can be moved to Evento model or a utils file
+def convert_objectids(obj):
+    if isinstance(obj, dict):
+        return {k: convert_objectids(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [convert_objectids(i) for i in obj]
+    elif isinstance(obj, ObjectId):
+        return str(obj)
+    else:
+        return obj
+
 def enrich_event_details(event_doc_or_obj):
     if isinstance(event_doc_or_obj, Evento):
-        event_data = event_doc_or_obj.json() # Use model's json to handle _id
-    else: # Assuming it's a dict
+        event_data = event_doc_or_obj.json()
+    else:
         event_data = event_doc_or_obj 
         if '_id' in event_data and isinstance(event_data['_id'], ObjectId):
             event_data['_id'] = str(event_data['_id'])
 
-    # Enrich Salon
     if event_data.get('salon') and isinstance(event_data['salon'], (str, ObjectId)):
         salon_doc = db.salones.find_one({'_id': ObjectId(event_data['salon'])})
         event_data['salon'] = Salon(**salon_doc).json() if salon_doc else None
 
-    # Enrich Menu (Platillos)
     if event_data.get('menu') and isinstance(event_data['menu'], list):
         enriched_menu = []
         for p_id_str in event_data['menu']:
             p_doc = db.platillos.find_one({'_id': ObjectId(p_id_str)})
             if p_doc:
-                # Enrich ingredients within the platillo
                 enriched_platillo_doc = Platillo(**p_doc).json()
-                enriched_platillo_doc = enrich_platillo(enriched_platillo_doc) # Defined in public_routes or move to utils
+                enriched_platillo_doc = enrich_platillo(enriched_platillo_doc)
                 enriched_menu.append(enriched_platillo_doc)
         event_data['menu'] = enriched_menu
     
-    # Enrich Plantilla (Staff - Users)
     if event_data.get('plantilla') and isinstance(event_data['plantilla'], list):
         enriched_plantilla = []
         for staff_id_str in event_data['plantilla']:
             staff_doc = db.usuarios.find_one({'_id': ObjectId(staff_id_str)})
-            if staff_doc: # Assuming User model for staff
-                enriched_plantilla.append({"_id": str(staff_doc["_id"]), "nombre": staff_doc["nombre"], "role": staff_doc["role"]})
+            if staff_doc:
+                enriched_plantilla.append({
+                    "_id": str(staff_doc["_id"]),
+                    "nombre": staff_doc["nombre"],
+                    "role": staff_doc["role"]
+                })
         event_data['plantilla'] = enriched_plantilla
 
-    # Enrich Cliente if cliente_id exists (as per GET /banquet-admin/events/{event_id} example)
-    # Assuming Evento model has 'cliente_id'
     if event_data.get('cliente_id') and isinstance(event_data['cliente_id'], (str, ObjectId)):
         client_doc = db.usuarios.find_one({'_id': ObjectId(event_data['cliente_id']), 'role': 'cliente'})
         if client_doc:
             event_data['cliente'] = Cliente(**client_doc).json()
-        # event_data.pop('cliente_id', None) # Optional: remove cliente_id if cliente object is present
 
-    return event_data
-
-# Function 'enrich_platillo' should be accessible here, e.g. from a utils file or defined again.
-# For brevity, I'll assume it's available (e.g. from public_routes or a shared util)
-from .public_routes import enrich_platillo
+    return convert_objectids(event_data)
 
 
 @clients_bp.route('/me', methods=['GET'])
