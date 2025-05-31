@@ -224,6 +224,7 @@ def actualizarCliente(client_id):
         return jsonify(Cliente(**updated_client_doc).json()), 200
     return jsonify({"mensaje": "No se pudo actualizar o no hubo cambios"}), 304
 
+#Hasta aquí todo bien
 
 @banquet_admin_bp.route('/events', methods=['POST'])
 def crearEvento():
@@ -349,7 +350,6 @@ def actualizarEvento(event_id):
         return jsonify(enrich_event_details(updated_event_doc)), 200
     return jsonify({"mensaje": "No se pudo actualizar o no hubo cambios"}), 304
 
-
 @banquet_admin_bp.route('/events/<string:event_id>', methods=['DELETE'])
 def borrarEvento(event_id):
     try:
@@ -361,8 +361,6 @@ def borrarEvento(event_id):
     if result.deleted_count > 0:
         return jsonify({"message": "Event deleted successfully."}), 200 
     return jsonify({"mensaje": "Evento no encontrado"}), 404
-
-
 
 @banquet_admin_bp.route('/events/<string:event_id>/staff', methods=['GET'])
 def obtenerStaffPorEvento(event_id):
@@ -410,7 +408,6 @@ def asignarStaffAEvento(event_id):
         return jsonify(enrich_event_details(updated_event)), 200 
     return jsonify({"mensaje": "Empleado ya asignado o no se pudo asignar"}), 304
 
-
 @banquet_admin_bp.route('/events/<string:event_id>/staff/<string:staff_id_to_remove>', methods=['DELETE'])
 def quitarStaffDeEvento(event_id, staff_id_to_remove):
     try:
@@ -426,8 +423,6 @@ def quitarStaffDeEvento(event_id, staff_id_to_remove):
     if result.modified_count > 0:
         return jsonify({"message": "Staff member removed from event successfully."}), 200 
     return jsonify({"mensaje": "Empleado no encontrado en el evento o no se pudo remover"}), 404
-
-
 
 @banquet_admin_bp.route('/procurement/required-ingredients', methods=['GET'])
 @roles_required(allowed_roles=['admin_banquetes'])
@@ -464,7 +459,6 @@ def get_required_ingredients():
                 "total_qty_requerida": total_qty
             })
     return jsonify(results), 200 
-
 
 @banquet_admin_bp.route('/procurement/deliveries', methods=['POST'])
 @roles_required(allowed_roles=['admin_banquetes'])
@@ -548,7 +542,6 @@ def get_all_deliveries():
         deliveries_list.append(enriched_d)
     return jsonify(deliveries_list), 200
 
-
 @banquet_admin_bp.route('/ingredients/<string:ingredient_id>/deliveries', methods=['GET'])
 @roles_required(allowed_roles=['admin_banquetes'])
 def get_deliveries_for_ingredient(ingredient_id):
@@ -580,7 +573,7 @@ def get_deliveries_for_ingredient(ingredient_id):
         
     return jsonify(deliveries_list), 200
 
-
+# CRUD de ingredientes
 
 @banquet_admin_bp.route('/ingredients', methods=['GET'])
 def get_all_ingredients_admin():
@@ -599,7 +592,6 @@ def get_ingredient_by_id(ingredient_id):
     if ingredient_doc:
         return jsonify(Ingrediente(**ingredient_doc).json()), 200 
     return jsonify({"mensaje": "Ingrediente no encontrado"}), 404
-
 
 @banquet_admin_bp.route('/ingredients', methods=['POST'])
 def create_ingredient():
@@ -657,7 +649,7 @@ def delete_ingredient_admin(ingredient_id):
     return jsonify({"mensaje": "Ingrediente no encontrado."}), 404
 
 
-
+# CRUD platillos
 
 @banquet_admin_bp.route('/platillos', methods=['GET'])
 @roles_required(allowed_roles=['admin_banquetes'])
@@ -763,18 +755,17 @@ def delete_platillo_admin(platillo_id):
         return jsonify({"message": "Platillo eliminado."}), 200
     return jsonify({"mensaje": "Platillo no encontrado."}), 404
 
-
+#CRUD de salones
 
 @banquet_admin_bp.route('/salons', methods=['GET'])
 @roles_required(allowed_roles=['admin_banquetes'])
-def get_all_salons_admin():
+def obtenerSalones():
     salones_cursor = db.salones.find()
     salones_list = [Salon(**s).json() for s in salones_cursor]
     return jsonify(salones_list), 200
 
 @banquet_admin_bp.route('/salons', methods=['POST'])
-@roles_required(allowed_roles=['admin_banquetes'])
-def create_salon_admin():
+def agregarSalon():
     data = request.get_json()
     req_fields = ['nombre', 'descripcion', 'capacidad']
     if not all(field in data for field in req_fields):
@@ -795,7 +786,7 @@ def create_salon_admin():
 
 @banquet_admin_bp.route('/salons/<string:salon_id>', methods=['PUT'])
 @roles_required(allowed_roles=['admin_banquetes'])
-def update_salon_admin(salon_id):
+def actualizarSalon(salon_id):
     data = request.get_json()
     try:
         s_obj_id = ObjectId(salon_id)
@@ -820,7 +811,7 @@ def update_salon_admin(salon_id):
 
 @banquet_admin_bp.route('/salons/<string:salon_id>', methods=['DELETE'])
 @roles_required(allowed_roles=['admin_banquetes'])
-def delete_salon_admin(salon_id):
+def borrarSalon(salon_id):
     try:
         s_obj_id = ObjectId(salon_id)
     except:
@@ -831,10 +822,7 @@ def delete_salon_admin(salon_id):
         return jsonify({"message": "Salón eliminado."}), 200
     return jsonify({"mensaje": "Salón no encontrado."}), 404
 
-
-
-
-
+#CRUD notificaciones
 
 @banquet_admin_bp.route('/notifications', methods=['GET'])
 @roles_required(allowed_roles=['admin_banquetes'])

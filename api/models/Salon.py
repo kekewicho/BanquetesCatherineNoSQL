@@ -8,5 +8,6 @@ class Salon(Base):
     nombre: str
     descripcion: str
     capacidad: int
+    _id: ObjectId | str = None
 
     __collection__ = "salones"
