@@ -76,7 +76,7 @@ class Evento(Base):
     validated: bool = True
     cliente_id: str | ObjectId = None                                # ID del cliente
 
-    _id = str | ObjectId = None
+    _id: str | ObjectId = None
 
     __collection__ = "eventos"
 

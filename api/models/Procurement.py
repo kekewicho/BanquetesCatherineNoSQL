@@ -8,5 +8,7 @@ class Delivery(Base):
     ingredientes: list[dict]
     fecha_creacion: str
     fecha_entrega: str
+    _id: str | ObjectId = None
+
 
     __collection__ = "procurement"
