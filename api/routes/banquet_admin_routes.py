@@ -357,7 +357,7 @@ def borrarEvento(event_id):
     
     result = db.eventos.delete_one({'_id': event_obj_id})
     if result.deleted_count > 0:
-        return jsonify({"message": "Event deleted successfully."}), 200 
+        return jsonify({"message": "Evento borrado de manera correcta."}), 200 
     return jsonify({"mensaje": "Evento no encontrado"}), 404
 
 @banquet_admin_bp.route('/events/<string:event_id>/staff', methods=['GET'])

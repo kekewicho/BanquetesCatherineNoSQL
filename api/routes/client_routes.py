@@ -1,4 +1,5 @@
 from flask import Blueprint, request, jsonify, session
+from routes.public_routes import enrich_platillo
 from models.User import Cliente #
 from models.Evento import Evento, Platillo, Ingrediente #
 from models.Salon import Salon #
