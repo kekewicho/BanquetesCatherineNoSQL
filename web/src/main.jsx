@@ -9,18 +9,36 @@ import "./global.css"
 
 
 import { Landing } from './pages/landing/Landing.jsx';
+import { Login } from './pages/login/Login.jsx';
+import { SessionProvider } from './providers/session.provider.jsx';
+import { AppLayout } from './components/organisms/layout/layout.jsx';
 
+import { RoleRouter } from './pages/principalView/principalView.jsx';
+
+import { Index } from './pages/colaborador/Index.jsx';
+
+import { EventoDetalle } from './pages/details/Evento.jsx';
 
 
 const App = () => (
   <React.StrictMode>
-    <BrowserRouter>
-      <Routes>
+    <SessionProvider>
+      <BrowserRouter>
+        <Routes>
+          <Route index element={<Landing />} />
+          <Route path="login" element={<Login />} />
 
+          <Route path="app" element={<AppLayout />}>
+            <Route index element={<RoleRouter />} />
+            <Route path='colaborador' >
+              <Route index element={<Index />} />
+              <Route path='evento/:eventId' element={<EventoDetalle scope={"colaborador"} />} />
+            </Route>
+          </Route>
 
-        <Route index element={<Landing />} />
-      </Routes>
-    </BrowserRouter>
+        </Routes>
+      </BrowserRouter>
+    </SessionProvider>
   </React.StrictMode>
 );
 

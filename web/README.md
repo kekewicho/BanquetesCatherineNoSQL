@@ -19,7 +19,7 @@ Una vez que el usuario selecciona un ingrediente en especifico, aqui le decimos 
 Listado de los clientes y lo necesario para buscarlos y seleccionarlos
 ### 2.3 Clientes detalles
 Estan los detalles de los usuarios y sus eventos historicos
-### 2.4 Eventos
+### 2.4 Eventos::index
 Listado de eventos pendientes para los siguientes 15 dias, y da la opcion para ir a su detalle. Muestra tambien las notificaciones de los cambios que hacen los usuarios 
 ### 2.4 Eventos detalles
 Despliega el detalle de los eventos

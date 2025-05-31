@@ -1,4 +1,5 @@
 import styles from "./Button.module.css"
+import { Link } from "react-router-dom";
 
 
 export const Button = ({
@@ -8,6 +9,7 @@ export const Button = ({
     dark,
     className,
     children,
+    navigateTo,
     ...props
 }) => {
     const baseClasses = 'btn ' + styles.appBtn;
@@ -26,9 +28,19 @@ export const Button = ({
 
     const allClasses = [baseClasses, colorClass, className].filter(Boolean).join(' ');
 
+
+    if (navigateTo) {
+        return (
+            <Link to={navigateTo} className={allClasses} {...props}>
+                {children}
+            </Link>
+        )
+    }
+
     return (
         <button className={allClasses} {...props}>
             {children}
         </button>
-    );
+    )
+
 };
