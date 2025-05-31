@@ -29,3 +29,7 @@
 * {
     color: var(--color-black);
 }
+
+.text-normal {
+    color: var(--color-black);
+}
