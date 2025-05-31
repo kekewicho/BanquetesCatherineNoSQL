@@ -15,12 +15,9 @@ class UsuarioService:
         elif role.startswith("COLABORADOR"):
             usuario = User(**data)
 
-        coleccion = db[usuario.__collection__]
+        usuario.save()
+        
 
-        if coleccion.find_one({"usuario": usuario.usuario}):
-            return {"error": "Usuario ya existe"}, 400
-
-        coleccion.insert_one(usuario.to_dict())
         return {"mensaje": "Usuario registrado"}, 201
     
     @staticmethod

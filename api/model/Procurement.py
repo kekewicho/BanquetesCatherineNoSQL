@@ -1,8 +1,9 @@
 from dataclasses import dataclass
 from bson import ObjectId
+from model.Base import Base
 
 @dataclass(kw_only=True)
-class Delivery:
+class Delivery(Base):
 
     ingredientes: list[dict]
     fecha_creacion: str
