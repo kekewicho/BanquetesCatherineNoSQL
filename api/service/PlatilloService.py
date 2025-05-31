@@ -39,8 +39,14 @@ class PlatilloService:
         if coleccion.find_one({"nombre": platillo.nombre}):
             return {"error": "Platillo ya existe"}, 400
 
-        coleccion.insert_one(asdict(platillo))
+        doc = asdict(platillo)
+
+        if doc.get("_id") is None:
+            doc.pop("_id")
+
+        coleccion.insert_one(doc)
         return {"mensaje": "Platillo registrado"}, 201
+
 
     @staticmethod
     def eliminarPlatillo(_id: str):
