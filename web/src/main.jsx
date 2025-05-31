@@ -15,9 +15,11 @@ import { AppLayout } from './components/organisms/layout/layout.jsx';
 
 import { RoleRouter } from './pages/principalView/principalView.jsx';
 
-import { Index } from './pages/colaborador/Index.jsx';
 
-import { EventoDetalle } from './pages/details/Evento.jsx';
+import { EventoDetalle } from './pages/general/Evento.jsx';
+import { ClienteDetalle } from './pages/general/Cliente.jsx';
+import { ListEventos } from './pages/general/ListEventos.jsx';
+import { ListClientes } from './pages/general/ListClientes.jsx';
 
 
 const App = () => (
@@ -31,8 +33,10 @@ const App = () => (
           <Route path="app" element={<AppLayout />}>
             <Route index element={<RoleRouter />} />
             <Route path='colaborador' >
-              <Route index element={<Index />} />
+              <Route index element={<ListEventos />} />
               <Route path='evento/:eventId' element={<EventoDetalle scope={"colaborador"} />} />
+              <Route path='customers' element={<ListClientes />} />
+              <Route path='customers/:clienteId' element={<ClienteDetalle />} />
             </Route>
           </Route>
 

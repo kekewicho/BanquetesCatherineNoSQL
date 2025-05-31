@@ -4,7 +4,7 @@ import { formatDate } from "../../utils/date.utils";
 
 
 
-export const Index = ({ }) => {
+export const ListEventos = ({ scope }) => {
 
     const events = fetchEvents();
 

@@ -73,6 +73,8 @@ class Evento(Base): #
     validated: bool
     cliente_id: str | ObjectId = None # Added based on README examples
 
+    _id = str | ObjectId = None
+
     __collection__ = "eventos"
 
     def json(self, enrich=True):

@@ -74,7 +74,7 @@ export const EventoDetalle = ({ scope }) => {
                     <p><strong>Salón:</strong> {event.salon.nombre} (Capacidad: {event.salon.capacidad})</p>
                     <p><strong>Invitados:</strong> {event.invitados}</p>
                     <p><strong>Validado:</strong> {event.validated ? <span className="badge bg-success">Sí</span> : <span className="badge bg-warning text-dark">No</span>}</p>
-                    
+
                     <h5 className="mt-4">Cliente:</h5>
                     <p>{event.cliente.nombre} {event.cliente.apellido} {event.cliente.telefono && `(${event.cliente.telefono})`}</p>
 
@@ -93,16 +93,25 @@ export const EventoDetalle = ({ scope }) => {
                         </ul>
                     ) : <p>No hay menú asignado.</p>}
 
-                    <h5 className="mt-4">Personal Asignado (Plantilla):</h5>
-                    {event.plantilla && event.plantilla.length > 0 ? (
-                        <ul className="list-group list-group-flush">
-                            {event.plantilla.map(staff => (
-                                <li key={staff._id} className="list-group-item">
-                                    {staff.nombre} ({staff.role}) - <span className="text-muted small">Usuario: {staff.usuario}</span>
-                                </li>
-                            ))}
-                        </ul>
-                    ) : <p>No hay personal asignado.</p>}
+                    {
+                        scope == "COLABORADOR" &&
+                        <>
+                            <h5 className="mt-4">Personal Asignado (Plantilla):</h5>
+                            {
+                                event.plantilla && event.plantilla.length > 0 ? (
+                                    <ul className="list-group list-group-flush">
+                                        {
+                                            event.plantilla.map(staff => (
+                                                <li key={staff._id} className="list-group-item">
+                                                    {staff.nombre} ({staff.role}) - <span className="text-muted small">Usuario: {staff.usuario}</span>
+                                                </li>
+                                            ))
+                                        }
+                                    </ul>
+                                ) : <p>No hay personal asignado.</p>
+                            }
+                        </>
+                    }
                 </div>
             </div>
         </div>
