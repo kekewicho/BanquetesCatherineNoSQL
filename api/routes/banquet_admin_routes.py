@@ -1,0 +1,890 @@
+from flask import Blueprint, request, jsonify, session
+from models.User import User, Cliente, Gerente 
+from models.Evento import Evento, Platillo, Ingrediente 
+from models.Salon import Salon 
+from models.Procurement import Delivery 
+from config.conexion_mongo import db
+from bson import ObjectId
+from utils.decorators import login_required, roles_required
+from werkzeug.security import generate_password_hash
+from datetime import datetime, timedelta
+from models.Base import Base
+
+
+
+
+from routes.public_routes import enrich_platillo 
+from routes.client_routes import enrich_event_details 
+
+banquet_admin_bp = Blueprint('banquet_admin_bp', __name__)
+
+
+@banquet_admin_bp.route('/user', methods=['POST'])
+# @roles_required(allowed_roles=['admin_banquetes'])
+def create_staff():
+    data = request.get_json()
+    required_fields = ['usuario', 'password', 'role', 'nombre']
+    if not all(field in data for field in required_fields):
+        return jsonify({"mensaje": "Faltan campos requeridos (usuario, password, role, nombre)"}), 400
+
+    if db.usuarios.find_one({"usuario": data['usuario']}):
+        return jsonify({"mensaje": "El nombre de usuario ya existe"}), 409
+    
+    
+    if data.get("role") == "CLIENTE":
+        usuario = Cliente(**data)
+    elif data.get("role") == "GERENTE":
+        usuario = Gerente(**data)
+    elif data.get("role") == "COLABORADOR":
+        usuario = User(**data)
+    
+    try:
+        usuario.save()
+        return jsonify(usuario.json()), 201 
+    except Exception as e:
+        return jsonify({"mensaje": f"Error al crear empleado: {str(e)}"}), 500
+
+@banquet_admin_bp.route('/staff', methods=['GET'])
+@roles_required(allowed_roles=['admin_banquetes'])
+def get_all_staff():
+    query = {}
+    role_filter = request.args.get('role')
+    if role_filter:
+        query['role'] = role_filter.lower()
+    
+    
+    
+    
+    staff_cursor = db.usuarios.find(query) 
+    staff_list = [User(**s).json() for s in staff_cursor]
+    return jsonify(staff_list), 200 
+
+@banquet_admin_bp.route('/staff/<string:staff_id>', methods=['GET'])
+@roles_required(allowed_roles=['admin_banquetes'])
+def get_staff_by_id(staff_id):
+    try:
+        staff_obj_id = ObjectId(staff_id)
+    except Exception:
+        return jsonify({"mensaje": "ID de empleado inválido"}), 400
+    
+    staff_doc = db.usuarios.find_one({'_id': staff_obj_id})
+    if staff_doc:
+        return jsonify(User(**staff_doc).json()), 200
+    return jsonify({"mensaje": "Empleado no encontrado"}), 404
+
+@banquet_admin_bp.route('/staff/<string:staff_id>', methods=['PUT'])
+@roles_required(allowed_roles=['admin_banquetes'])
+def update_staff(staff_id):
+    data = request.get_json()
+    try:
+        staff_obj_id = ObjectId(staff_id)
+    except Exception:
+        return jsonify({"mensaje": "ID de empleado inválido"}), 400
+
+    if not db.usuarios.find_one({'_id': staff_obj_id}):
+        return jsonify({"mensaje": "Empleado no encontrado"}), 404
+
+    update_data = {}
+    if 'telefono' in data:
+        update_data['telefono'] = data['telefono']
+    if 'role' in data:
+        update_data['role'] = data['role'].lower()
+    if 'nombre' in data:
+        update_data['nombre'] = data['nombre']
+    if 'apellido' in data:
+        update_data['apellido'] = data['apellido']
+    
+    if not update_data:
+        return jsonify({"mensaje": "No hay datos para actualizar"}), 400
+
+    result = db.usuarios.update_one({'_id': staff_obj_id}, {'$set': update_data})
+    if result.modified_count > 0:
+        updated_staff_doc = db.usuarios.find_one({'_id': staff_obj_id})
+        return jsonify(User(**updated_staff_doc).json()), 200
+    return jsonify({"mensaje": "No se pudo actualizar o no hubo cambios"}), 304
+
+@banquet_admin_bp.route('/staff/<string:staff_id>', methods=['DELETE'])
+@roles_required(allowed_roles=['admin_banquetes'])
+def delete_staff(staff_id):
+    try:
+        staff_obj_id = ObjectId(staff_id)
+    except Exception:
+        return jsonify({"mensaje": "ID de empleado inválido"}), 400
+    
+    
+    result = db.usuarios.delete_one({'_id': staff_obj_id})
+    if result.deleted_count > 0:
+        return jsonify({"message": "Staff member deactivated successfully."}), 200 
+    return jsonify({"mensaje": "Empleado no encontrado"}), 404
+
+
+@banquet_admin_bp.route('/clients', methods=['GET'])
+@roles_required(allowed_roles=['admin_banquetes'])
+def get_all_clients():
+    query = {'role': 'cliente'}
+    search_term = request.args.get('search')
+    if search_term:
+        
+        query['$or'] = [
+            {'nombre': {'$regex': search_term, '$options': 'i'}},
+            {'apellido': {'$regex': search_term, '$options': 'i'}},
+            {'rfc': {'$regex': search_term, '$options': 'i'}},
+            {'usuario': {'$regex': search_term, '$options': 'i'}}
+        ]
+    
+    clients_cursor = db.usuarios.find(query)
+    clients_list = [Cliente(**c).json() for c in clients_cursor]
+    return jsonify(clients_list), 200
+
+@banquet_admin_bp.route('/clients/<string:client_id>', methods=['GET'])
+@roles_required(allowed_roles=['admin_banquetes'])
+def get_client_by_id(client_id):
+    try:
+        client_obj_id = ObjectId(client_id)
+    except Exception:
+        return jsonify({"mensaje": "ID de cliente inválido"}), 400
+    
+    client_doc = db.usuarios.find_one({'_id': client_obj_id, 'role': 'cliente'})
+    if client_doc:
+        return jsonify(Cliente(**client_doc).json()), 200
+    return jsonify({"mensaje": "Cliente no encontrado"}), 404
+
+@banquet_admin_bp.route('/clients/<string:client_id>/events', methods=['GET'])
+@roles_required(allowed_roles=['admin_banquetes'])
+def get_client_events(client_id):
+    try:
+        client_obj_id = ObjectId(client_id)
+    except Exception:
+        return jsonify({"mensaje": "ID de cliente inválido"}), 400
+
+    if not db.usuarios.find_one({'_id': client_obj_id, 'role': 'cliente'}):
+         return jsonify({"mensaje": "Cliente no encontrado"}), 404
+         
+    
+    events_cursor = db.eventos.find({'cliente_id': client_obj_id}).sort("fecha", -1) 
+    events_list = [enrich_event_details(e_doc) for e_doc in events_cursor]
+    return jsonify(events_list), 200
+
+@banquet_admin_bp.route('/clients', methods=['POST'])
+@roles_required(allowed_roles=['admin_banquetes'])
+def create_client():
+    data = request.get_json()
+    required_fields = ['usuario', 'password', 'nombre', 'apellido'] 
+    if not all(field in data for field in required_fields):
+        return jsonify({"mensaje": "Campos requeridos faltantes"}), 400
+
+    if db.usuarios.find_one({"usuario": data['usuario']}):
+        return jsonify({"mensaje": "El nombre de usuario ya existe"}), 409
+
+    hashed_password = generate_password_hash(data['password'])
+    client_data_dict = {
+        "usuario": data['usuario'],
+        "password": hashed_password,
+        "role": "cliente",
+        "nombre": data['nombre'],
+        "apellido": data.get('apellido'),
+        "telefono": data.get('telefono'),
+        "rfc": data.get('rfc'),
+        "direccion": data.get('direccion') 
+    }
+    
+    new_client = Cliente(**client_data_dict)
+    try:
+        inserted_id = new_client.save()
+        created_client_doc = db.usuarios.find_one({'_id': inserted_id})
+        return jsonify(Cliente(**created_client_doc).json()), 201 
+    except Exception as e:
+        return jsonify({"mensaje": f"Error al crear cliente: {str(e)}"}), 500
+
+@banquet_admin_bp.route('/clients/<string:client_id>', methods=['PUT'])
+@roles_required(allowed_roles=['admin_banquetes'])
+def update_client(client_id):
+    data = request.get_json()
+    try:
+        client_obj_id = ObjectId(client_id)
+    except Exception:
+        return jsonify({"mensaje": "ID de cliente inválido"}), 400
+
+    if not db.usuarios.find_one({'_id': client_obj_id, 'role': 'cliente'}):
+        return jsonify({"mensaje": "Cliente no encontrado"}), 404
+
+    update_data = {k: v for k, v in data.items() if k not in ['_id', 'usuario', 'password', 'role']}
+    if not update_data:
+        return jsonify({"mensaje": "No hay datos para actualizar"}), 400
+    
+    
+    
+    
+    
+    
+
+    result = db.usuarios.update_one({'_id': client_obj_id}, {'$set': update_data})
+    if result.modified_count > 0:
+        updated_client_doc = db.usuarios.find_one({'_id': client_obj_id})
+        return jsonify(Cliente(**updated_client_doc).json()), 200
+    return jsonify({"mensaje": "No se pudo actualizar o no hubo cambios"}), 304
+
+
+
+@banquet_admin_bp.route('/events', methods=['POST'])
+@roles_required(allowed_roles=['admin_banquetes'])
+def create_event():
+    data = request.get_json()
+    required_fields = ['fecha', 'tipo', 'descripcion', 'menu', 'plantilla', 'salon', 'invitados', 'cliente_id']
+    if not all(field in data for field in required_fields):
+        return jsonify({"mensaje": "Faltan campos requeridos"}), 400
+
+    
+    try:
+        cliente_obj_id = ObjectId(data['cliente_id'])
+        if not db.usuarios.find_one({'_id': cliente_obj_id, 'role': 'cliente'}):
+            return jsonify({"mensaje": "Cliente no encontrado"}), 404
+        
+        salon_obj_id = ObjectId(data['salon'])
+        if not db.salones.find_one({'_id': salon_obj_id}):
+            return jsonify({"mensaje": "Salón no encontrado"}), 404
+
+        menu_obj_ids = [ObjectId(pid) for pid in data['menu']]
+        if db.platillos.count_documents({'_id': {'$in': menu_obj_ids}}) != len(menu_obj_ids):
+             return jsonify({"mensaje": "Uno o más platillos no son válidos"}), 404
+        
+        plantilla_obj_ids = [ObjectId(sid) for sid in data['plantilla']]
+        
+        if db.usuarios.count_documents({'_id': {'$in': plantilla_obj_ids}}) != len(plantilla_obj_ids):
+             return jsonify({"mensaje": "Uno o más IDs de staff no son válidos"}), 404
+
+    except Exception as e:
+        return jsonify({"mensaje": f"IDs inválidos: {e}"}), 400
+
+    event_data_dict = {
+        "fecha": data['fecha'],
+        "tipo": data['tipo'],
+        "descripcion": data['descripcion'],
+        "menu": menu_obj_ids, 
+        "plantilla": plantilla_obj_ids, 
+        "salon": salon_obj_id, 
+        "invitados": int(data['invitados']),
+        "validated": data.get('validated', True), 
+        "cliente_id": cliente_obj_id 
+    }
+    new_event = Evento(**event_data_dict)
+    try:
+        inserted_id = new_event.save()
+        created_event_doc = db.eventos.find_one({'_id': inserted_id})
+        return jsonify(enrich_event_details(created_event_doc)), 201
+    except Exception as e:
+        return jsonify({"mensaje": f"Error al crear evento: {str(e)}"}), 500
+
+@banquet_admin_bp.route('/events', methods=['GET'])
+@roles_required(allowed_roles=['admin_banquetes'])
+def get_all_events():
+    query = {}
+    if request.args.get('from_date'):
+        query['fecha'] = {'$gte': request.args.get('from_date')}
+    if request.args.get('to_date'):
+        query.setdefault('fecha', {})['$lte'] = request.args.get('to_date')
+    if request.args.get('salon_id'):
+        query['salon'] = ObjectId(request.args.get('salon_id'))
+    if request.args.get('validated'):
+        query['validated'] = request.args.get('validated').lower() == 'true'
+    
+    status_filter = request.args.get('status')
+    current_date_str = datetime.now().strftime("%Y-%m-%d")
+    if status_filter == "upcoming":
+        query.setdefault('fecha', {})['$gte'] = current_date_str
+    elif status_filter == "past":
+        query.setdefault('fecha', {})['$lt'] = current_date_str
+
+    events_cursor = db.eventos.find(query).sort("fecha", 1) 
+    events_list = [enrich_event_details(e_doc) for e_doc in events_cursor]
+    return jsonify(events_list), 200
+
+@banquet_admin_bp.route('/events/<string:event_id>', methods=['GET'])
+@roles_required(allowed_roles=['admin_banquetes'])
+def get_event_by_id_admin(event_id): 
+    try:
+        event_obj_id = ObjectId(event_id)
+    except Exception:
+        return jsonify({"mensaje": "ID de evento inválido"}), 400
+    
+    event_doc = db.eventos.find_one({'_id': event_obj_id})
+    if event_doc:
+        return jsonify(enrich_event_details(event_doc)), 200 
+    return jsonify({"mensaje": "Evento no encontrado"}), 404
+
+@banquet_admin_bp.route('/events/<string:event_id>', methods=['PUT'])
+@roles_required(allowed_roles=['admin_banquetes'])
+def update_event_admin(event_id):
+    data = request.get_json()
+    try:
+        event_obj_id = ObjectId(event_id)
+    except Exception:
+        return jsonify({"mensaje": "ID de evento inválido"}), 400
+
+    if not db.eventos.find_one({'_id': event_obj_id}):
+        return jsonify({"mensaje": "Evento no encontrado"}), 404
+
+    update_fields = {}
+    simple_fields = ['fecha', 'tipo', 'descripcion', 'invitados', 'validated']
+    for field in simple_fields:
+        if field in data:
+            update_fields[field] = data[field]
+            if field == 'invitados': update_fields[field] = int(data[field])
+            if field == 'validated': update_fields[field] = bool(data[field])
+
+    
+    if 'salon' in data:
+        update_fields['salon'] = ObjectId(data['salon'])
+    if 'menu' in data and isinstance(data['menu'], list):
+        update_fields['menu'] = [ObjectId(pid) for pid in data['menu']]
+    if 'plantilla' in data and isinstance(data['plantilla'], list):
+        update_fields['plantilla'] = [ObjectId(sid) for sid in data['plantilla']]
+    if 'cliente_id' in data:
+         update_fields['cliente_id'] = ObjectId(data['cliente_id'])
+
+
+    if not update_fields:
+        return jsonify({"mensaje": "No hay datos para actualizar"}), 400
+
+    result = db.eventos.update_one({'_id': event_obj_id}, {'$set': update_fields})
+    if result.modified_count > 0:
+        updated_event_doc = db.eventos.find_one({'_id': event_obj_id})
+        return jsonify(enrich_event_details(updated_event_doc)), 200
+    return jsonify({"mensaje": "No se pudo actualizar o no hubo cambios"}), 304
+
+
+@banquet_admin_bp.route('/events/<string:event_id>', methods=['DELETE'])
+@roles_required(allowed_roles=['admin_banquetes'])
+def delete_event_admin(event_id):
+    try:
+        event_obj_id = ObjectId(event_id)
+    except Exception:
+        return jsonify({"mensaje": "ID de evento inválido"}), 400
+    
+    result = db.eventos.delete_one({'_id': event_obj_id})
+    if result.deleted_count > 0:
+        return jsonify({"message": "Event deleted successfully."}), 200 
+    return jsonify({"mensaje": "Evento no encontrado"}), 404
+
+
+
+@banquet_admin_bp.route('/events/<string:event_id>/staff', methods=['GET'])
+@roles_required(allowed_roles=['admin_banquetes'])
+def get_event_staff(event_id):
+    try:
+        event_obj_id = ObjectId(event_id)
+    except Exception:
+        return jsonify({"mensaje": "ID de evento inválido"}), 400
+    
+    event_doc = db.eventos.find_one({'_id': event_obj_id}, {'plantilla': 1}) 
+    if not event_doc or 'plantilla' not in event_doc:
+        return jsonify({"mensaje": "Evento no encontrado o sin personal asignado"}), 404
+
+    staff_ids = event_doc.get('plantilla', [])
+    staff_list = []
+    if staff_ids:
+        staff_cursor = db.usuarios.find({'_id': {'$in': staff_ids}})
+        staff_list = [User(**s).json() for s in staff_cursor] 
+    return jsonify(staff_list), 200
+
+@banquet_admin_bp.route('/events/<string:event_id>/staff', methods=['POST'])
+@roles_required(allowed_roles=['admin_banquetes'])
+def assign_staff_to_event(event_id):
+    data = request.get_json()
+    if 'staff_id' not in data:
+        return jsonify({"mensaje": "ID de empleado (staff_id) requerido"}), 400
+    
+    try:
+        event_obj_id = ObjectId(event_id)
+        staff_obj_id = ObjectId(data['staff_id'])
+    except Exception:
+        return jsonify({"mensaje": "IDs inválidos"}), 400
+
+    
+    if not db.eventos.find_one({'_id': event_obj_id}):
+        return jsonify({"mensaje": "Evento no encontrado"}), 404
+    if not db.usuarios.find_one({'_id': staff_obj_id}): 
+        return jsonify({"mensaje": "Empleado no encontrado"}), 404
+
+    result = db.eventos.update_one(
+        {'_id': event_obj_id},
+        {'$addToSet': {'plantilla': staff_obj_id}} 
+    )
+    if result.modified_count > 0:
+        
+        updated_event = db.eventos.find_one({'_id': event_obj_id})
+        return jsonify(enrich_event_details(updated_event)), 200 
+    return jsonify({"mensaje": "Empleado ya asignado o no se pudo asignar"}), 304
+
+
+@banquet_admin_bp.route('/events/<string:event_id>/staff/<string:staff_id_to_remove>', methods=['DELETE'])
+@roles_required(allowed_roles=['admin_banquetes'])
+def remove_staff_from_event(event_id, staff_id_to_remove):
+    try:
+        event_obj_id = ObjectId(event_id)
+        staff_obj_id_to_remove = ObjectId(staff_id_to_remove)
+    except Exception:
+        return jsonify({"mensaje": "IDs inválidos"}), 400
+        
+    result = db.eventos.update_one(
+        {'_id': event_obj_id},
+        {'$pull': {'plantilla': staff_obj_id_to_remove}}
+    )
+    if result.modified_count > 0:
+        return jsonify({"message": "Staff member removed from event successfully."}), 200 
+    return jsonify({"mensaje": "Empleado no encontrado en el evento o no se pudo remover"}), 404
+
+
+
+@banquet_admin_bp.route('/procurement/required-ingredients', methods=['GET'])
+@roles_required(allowed_roles=['admin_banquetes'])
+def get_required_ingredients():
+    from_date_str = request.args.get('from_date')
+    to_date_str = request.args.get('to_date')
+
+    if not from_date_str or not to_date_str:
+        return jsonify({"mensaje": "Parámetros 'from_date' y 'to_date' son requeridos (YYYY-MM-DD)"}), 400
+
+
+    
+    required_map = {}
+    events_in_range = db.eventos.find({'fecha': {'$gte': from_date_str, '$lte': to_date_str}})
+    for event in events_in_range:
+        num_invitados = event.get('invitados', 1)
+        for platillo_id in event.get('menu', []):
+            platillo = db.platillos.find_one({'_id': ObjectId(platillo_id)})
+            if platillo:
+                for ing_item in platillo.get('ingredientes', []): 
+                    ing_id = ing_item.get('ingrediente')
+                    ing_qty_per_platillo = ing_item.get('qty', 0)
+                    total_ing_qty_for_event_platillo = ing_qty_per_platillo * num_invitados
+                    
+                    current_total = required_map.get(ing_id, 0)
+                    required_map[ing_id] = current_total + total_ing_qty_for_event_platillo
+    
+    results = []
+    for ing_id, total_qty in required_map.items():
+        ing_doc = db.ingredientes.find_one({'_id': ObjectId(ing_id)})
+        if ing_doc:
+            results.append({
+                "ingrediente": Ingrediente(**ing_doc).json(),
+                "total_qty_requerida": total_qty
+            })
+    return jsonify(results), 200 
+
+
+@banquet_admin_bp.route('/procurement/deliveries', methods=['POST'])
+@roles_required(allowed_roles=['admin_banquetes'])
+def record_delivery():
+    data = request.get_json()
+    if not data.get('ingredientes') or not data.get('fecha_entrega'):
+        return jsonify({"mensaje": "Campos 'ingredientes' y 'fecha_entrega' son requeridos."}), 400
+
+    
+    
+    processed_ingredientes = []
+    for item in data['ingredientes']:
+        if not item.get('ingrediente_id') or not item.get('cantidad'):
+            return jsonify({"mensaje": "Cada ingrediente debe tener 'ingrediente_id' y 'cantidad'."}), 400
+        try:
+            processed_ingredientes.append({
+                "ingrediente": ObjectId(item['ingrediente_id']), 
+                "cantidad": item['cantidad'],
+                "unidad_compra": item.get('unidad_compra', '') 
+            })
+        except Exception:
+             return jsonify({"mensaje": f"ID de ingrediente inválido: {item.get('ingrediente_id')}"}), 400
+
+
+    delivery_data_dict = {
+        "ingredientes": processed_ingredientes, 
+        "fecha_creacion": data.get('fecha_creacion', datetime.now().strftime("%Y-%m-%d")), 
+        "fecha_entrega": data['fecha_entrega']
+    }
+    
+    new_delivery = Delivery(**delivery_data_dict)
+    try:
+        inserted_id = new_delivery.save()
+        created_delivery_doc = db.procurement.find_one({'_id': inserted_id}) 
+        
+        
+        enriched_delivery = Delivery(**created_delivery_doc).json()
+        if 'ingredientes' in enriched_delivery:
+            enriched_items = []
+            for item_dict in created_delivery_doc['ingredientes']: 
+                ing_id = item_dict.get('ingrediente')
+                ing_doc_detail = db.ingredientes.find_one({'_id': ObjectId(ing_id)})
+                enriched_items.append({
+                    "ingrediente": Ingrediente(**ing_doc_detail).json() if ing_doc_detail else None,
+                    "cantidad": item_dict.get('cantidad'),
+                    "unidad_compra": item_dict.get('unidad_compra')
+                })
+            enriched_delivery['ingredientes'] = enriched_items
+        return jsonify(enriched_delivery), 201 
+    except Exception as e:
+        return jsonify({"mensaje": f"Error al registrar entrega: {str(e)}"}), 500
+
+@banquet_admin_bp.route('/procurement/deliveries', methods=['GET'])
+@roles_required(allowed_roles=['admin_banquetes'])
+def get_all_deliveries():
+    query = {}
+    
+    
+    
+    if request.args.get('from_date'):
+        query['fecha_entrega'] = {'$gte': request.args.get('from_date')}
+    if request.args.get('to_date'):
+        query.setdefault('fecha_entrega', {})['$lte'] = request.args.get('to_date')
+
+    deliveries_cursor = db.procurement.find(query).sort("fecha_entrega", -1)
+    
+    deliveries_list = []
+    for d_doc in deliveries_cursor:
+        enriched_d = Delivery(**d_doc).json()
+        if 'ingredientes' in enriched_d: 
+            enriched_items = []
+            for item_dict in d_doc['ingredientes']:
+                ing_id = item_dict.get('ingrediente')
+                ing_doc_detail = db.ingredientes.find_one({'_id': ObjectId(ing_id)})
+                enriched_items.append({
+                    "ingrediente": Ingrediente(**ing_doc_detail).json() if ing_doc_detail else None,
+                    "cantidad": item_dict.get('cantidad'),
+                    "unidad_compra": item_dict.get('unidad_compra')
+                })
+            enriched_d['ingredientes'] = enriched_items
+        deliveries_list.append(enriched_d)
+    return jsonify(deliveries_list), 200
+
+
+@banquet_admin_bp.route('/ingredients/<string:ingredient_id>/deliveries', methods=['GET'])
+@roles_required(allowed_roles=['admin_banquetes'])
+def get_deliveries_for_ingredient(ingredient_id):
+    try:
+        ing_obj_id = ObjectId(ingredient_id)
+    except Exception:
+        return jsonify({"mensaje": "ID de ingrediente inválido"}), 400
+
+    
+    deliveries_cursor = db.procurement.find({'ingredientes.ingrediente': ing_obj_id}).sort("fecha_entrega", -1)
+    
+    deliveries_list = []
+    for d_doc in deliveries_cursor: 
+        enriched_d = Delivery(**d_doc).json() 
+        
+        
+        enriched_items_for_delivery = []
+        for item_in_delivery in d_doc.get('ingredientes', []):
+            ing_detail_id = item_in_delivery.get('ingrediente') 
+            ing_detail_doc = db.ingredientes.find_one({'_id': ObjectId(ing_detail_id)})
+            
+            enriched_items_for_delivery.append({
+                "ingrediente": Ingrediente(**ing_detail_doc).json() if ing_detail_doc else None,
+                "cantidad": item_in_delivery.get('cantidad'),
+                "unidad_compra": item_in_delivery.get('unidad_compra')
+            })
+        enriched_d['ingredientes'] = enriched_items_for_delivery
+        deliveries_list.append(enriched_d)
+        
+    return jsonify(deliveries_list), 200
+
+
+
+@banquet_admin_bp.route('/ingredients', methods=['GET'])
+@roles_required(allowed_roles=['admin_banquetes'])
+def get_all_ingredients_admin():
+    ingredients_cursor = db.ingredientes.find()
+    ingredients_list = [Ingrediente(**i).json() for i in ingredients_cursor]
+    return jsonify(ingredients_list), 200 
+
+@banquet_admin_bp.route('/ingredients/<string:ingredient_id>', methods=['GET'])
+@roles_required(allowed_roles=['admin_banquetes'])
+def get_ingredient_by_id_admin(ingredient_id):
+    try:
+        ing_obj_id = ObjectId(ingredient_id)
+    except Exception:
+        return jsonify({"mensaje": "ID de ingrediente inválido"}), 400
+    
+    ingredient_doc = db.ingredientes.find_one({'_id': ing_obj_id})
+    if ingredient_doc:
+        return jsonify(Ingrediente(**ingredient_doc).json()), 200 
+    return jsonify({"mensaje": "Ingrediente no encontrado"}), 404
+
+
+@banquet_admin_bp.route('/ingredients', methods=['POST'])
+@roles_required(allowed_roles=['admin_banquetes'])
+def create_ingredient_admin():
+    data = request.get_json()
+    if not data or not data.get('descripcion') or not data.get('unidad'):
+        return jsonify({"mensaje": "Campos 'descripcion' y 'unidad' requeridos"}), 400
+    
+    ing_data = {"descripcion": data['descripcion'], "unidad": data['unidad']}
+    if db.ingredientes.find_one(ing_data): 
+        return jsonify({"mensaje": "Ingrediente con esa descripción y unidad ya existe"}), 409
+        
+    new_ingredient = Ingrediente(**ing_data)
+    try:
+        inserted_id = new_ingredient.save()
+        created_ing = db.ingredientes.find_one({'_id': inserted_id})
+        return jsonify(Ingrediente(**created_ing).json()), 201
+    except Exception as e:
+        return jsonify({"mensaje": f"Error al crear ingrediente: {e}"}), 500
+
+@banquet_admin_bp.route('/ingredients/<string:ingredient_id>', methods=['PUT'])
+@roles_required(allowed_roles=['admin_banquetes'])
+def update_ingredient_admin(ingredient_id):
+    data = request.get_json()
+    try:
+        ing_obj_id = ObjectId(ingredient_id)
+    except Exception:
+        return jsonify({"mensaje": "ID de ingrediente inválido"}), 400
+
+    if not db.ingredientes.find_one({'_id': ing_obj_id}):
+        return jsonify({"mensaje": "Ingrediente no encontrado"}), 404
+    
+    update_data = {}
+    if 'descripcion' in data: update_data['descripcion'] = data['descripcion']
+    if 'unidad' in data: update_data['unidad'] = data['unidad']
+    if not update_data:
+        return jsonify({"mensaje": "No hay datos para actualizar"}), 400
+
+    result = db.ingredientes.update_one({'_id': ing_obj_id}, {'$set': update_data})
+    if result.modified_count > 0:
+        updated_ing = db.ingredientes.find_one({'_id': ing_obj_id})
+        return jsonify(Ingrediente(**updated_ing).json()), 200
+    return jsonify({"mensaje": "No se pudo actualizar o no hubo cambios"}), 304
+
+@banquet_admin_bp.route('/ingredients/<string:ingredient_id>', methods=['DELETE'])
+@roles_required(allowed_roles=['admin_banquetes'])
+def delete_ingredient_admin(ingredient_id):
+    try:
+        ing_obj_id = ObjectId(ingredient_id)
+    except Exception:
+        return jsonify({"mensaje": "ID de ingrediente inválido"}), 400
+    
+    result = db.ingredientes.delete_one({'_id': ing_obj_id})
+    if result.deleted_count > 0:
+        return jsonify({"message": "Ingrediente eliminado."}), 200
+    return jsonify({"mensaje": "Ingrediente no encontrado."}), 404
+
+
+
+
+@banquet_admin_bp.route('/platillos', methods=['GET'])
+@roles_required(allowed_roles=['admin_banquetes'])
+def get_all_platillos_admin():
+    query = {}
+    tipo_platillo_filter = request.args.get('tipo_platillo')
+    if tipo_platillo_filter:
+        query['tipo_platillo'] = tipo_platillo_filter
+
+    platillos_cursor = db.platillos.find(query)
+    platillos_list = [enrich_platillo(Platillo(**p).json()) for p in platillos_cursor]
+    return jsonify(platillos_list), 200
+
+@banquet_admin_bp.route('/platillos', methods=['POST'])
+@roles_required(allowed_roles=['admin_banquetes'])
+def create_platillo_admin():
+    data = request.get_json()
+    req_fields = ['nombre', 'descripcion', 'tipo_platillo', 'precio', 'ingredientes']
+    if not all(field in data for field in req_fields):
+        return jsonify({"mensaje": "Faltan campos requeridos para el platillo"}), 400
+
+    processed_ingredientes = []
+    for ing_item in data.get('ingredientes', []):
+        
+        if not ing_item.get('ingrediente') or not isinstance(ing_item.get('qty'), (int, float)):
+            return jsonify({"mensaje": "Formato de ingrediente inválido"}), 400
+        try:
+            ing_obj_id = ObjectId(ing_item['ingrediente'])
+            if not db.ingredientes.find_one({'_id': ing_obj_id}):
+                 return jsonify({"mensaje": f"Ingrediente ID {ing_item['ingrediente']} no encontrado"}), 404
+            processed_ingredientes.append({"ingrediente": ing_obj_id, "qty": ing_item['qty']})
+        except:
+            return jsonify({"mensaje": f"ID de ingrediente inválido: {ing_item['ingrediente']}"}), 400
+
+
+    platillo_data = {
+        "nombre": data['nombre'],
+        "descripcion": data['descripcion'],
+        "tipo_platillo": data['tipo_platillo'],
+        "precio": float(data['precio']),
+        "thumbnail": data.get('thumbnail', ''),
+        "ingredientes": processed_ingredientes 
+    }
+    new_platillo = Platillo(**platillo_data)
+    try:
+        inserted_id = new_platillo.save()
+        created_platillo_doc = db.platillos.find_one({'_id': inserted_id})
+        return jsonify(enrich_platillo(Platillo(**created_platillo_doc).json())), 201
+    except Exception as e:
+        return jsonify({"mensaje": f"Error al crear platillo: {e}"}), 500
+
+@banquet_admin_bp.route('/platillos/<string:platillo_id>', methods=['PUT'])
+@roles_required(allowed_roles=['admin_banquetes'])
+def update_platillo_admin(platillo_id):
+    data = request.get_json()
+    try:
+        p_obj_id = ObjectId(platillo_id)
+    except:
+        return jsonify({"mensaje": "ID de platillo inválido"}), 400
+
+    if not db.platillos.find_one({'_id': p_obj_id}):
+        return jsonify({"mensaje": "Platillo no encontrado"}), 404
+
+    update_data = {}
+    simple_fields = ['nombre', 'descripcion', 'tipo_platillo', 'precio', 'thumbnail']
+    for f in simple_fields:
+        if f in data: update_data[f] = data[f]
+    if 'precio' in update_data: update_data['precio'] = float(update_data['precio'])
+
+    if 'ingredientes' in data:
+        processed_ingredientes = []
+        for ing_item in data.get('ingredientes', []):
+            if not ing_item.get('ingrediente') or not isinstance(ing_item.get('qty'), (int, float)):
+                return jsonify({"mensaje": "Formato de ingrediente inválido en actualización"}), 400
+            try:
+                ing_obj_id = ObjectId(ing_item['ingrediente'])
+                if not db.ingredientes.find_one({'_id': ing_obj_id}):
+                    return jsonify({"mensaje": f"Ingrediente ID {ing_item['ingrediente']} no encontrado"}), 404
+                processed_ingredientes.append({"ingrediente": ing_obj_id, "qty": ing_item['qty']})
+            except:
+                return jsonify({"mensaje": f"ID de ingrediente inválido: {ing_item['ingrediente']}"}), 400
+        update_data['ingredientes'] = processed_ingredientes
+    
+    if not update_data:
+        return jsonify({"mensaje": "No hay datos para actualizar"}), 400
+
+    result = db.platillos.update_one({'_id': p_obj_id}, {'$set': update_data})
+    if result.modified_count > 0:
+        updated_p = db.platillos.find_one({'_id': p_obj_id})
+        return jsonify(enrich_platillo(Platillo(**updated_p).json())), 200
+    return jsonify({"mensaje": "No se pudo actualizar o no hubo cambios"}), 304
+
+@banquet_admin_bp.route('/platillos/<string:platillo_id>', methods=['DELETE'])
+@roles_required(allowed_roles=['admin_banquetes'])
+def delete_platillo_admin(platillo_id):
+    try:
+        p_obj_id = ObjectId(platillo_id)
+    except:
+        return jsonify({"mensaje": "ID de platillo inválido"}), 400
+    
+    result = db.platillos.delete_one({'_id': p_obj_id})
+    if result.deleted_count > 0:
+        return jsonify({"message": "Platillo eliminado."}), 200
+    return jsonify({"mensaje": "Platillo no encontrado."}), 404
+
+
+
+@banquet_admin_bp.route('/salons', methods=['GET'])
+@roles_required(allowed_roles=['admin_banquetes'])
+def get_all_salons_admin():
+    salones_cursor = db.salones.find()
+    salones_list = [Salon(**s).json() for s in salones_cursor]
+    return jsonify(salones_list), 200
+
+@banquet_admin_bp.route('/salons', methods=['POST'])
+@roles_required(allowed_roles=['admin_banquetes'])
+def create_salon_admin():
+    data = request.get_json()
+    req_fields = ['nombre', 'descripcion', 'capacidad']
+    if not all(field in data for field in req_fields):
+        return jsonify({"mensaje": "Faltan campos requeridos para el salón"}), 400
+    
+    salon_data = {
+        "nombre": data['nombre'],
+        "descripcion": data['descripcion'],
+        "capacidad": int(data['capacidad'])
+    }
+    new_salon = Salon(**salon_data)
+    try:
+        inserted_id = new_salon.save()
+        created_salon = db.salones.find_one({'_id': inserted_id})
+        return jsonify(Salon(**created_salon).json()), 201
+    except Exception as e:
+        return jsonify({"mensaje": f"Error al crear salón: {e}"}), 500
+
+@banquet_admin_bp.route('/salons/<string:salon_id>', methods=['PUT'])
+@roles_required(allowed_roles=['admin_banquetes'])
+def update_salon_admin(salon_id):
+    data = request.get_json()
+    try:
+        s_obj_id = ObjectId(salon_id)
+    except:
+        return jsonify({"mensaje": "ID de salón inválido"}), 400
+    
+    if not db.salones.find_one({'_id': s_obj_id}):
+        return jsonify({"mensaje": "Salón no encontrado"}), 404
+
+    update_data = {}
+    if 'nombre' in data: update_data['nombre'] = data['nombre']
+    if 'descripcion' in data: update_data['descripcion'] = data['descripcion']
+    if 'capacidad' in data: update_data['capacidad'] = int(data['capacidad'])
+    if not update_data:
+        return jsonify({"mensaje": "No hay datos para actualizar"}), 400
+
+    result = db.salones.update_one({'_id': s_obj_id}, {'$set': update_data})
+    if result.modified_count > 0:
+        updated_s = db.salones.find_one({'_id': s_obj_id})
+        return jsonify(Salon(**updated_s).json()), 200
+    return jsonify({"mensaje": "No se pudo actualizar o no hubo cambios"}), 304
+
+@banquet_admin_bp.route('/salons/<string:salon_id>', methods=['DELETE'])
+@roles_required(allowed_roles=['admin_banquetes'])
+def delete_salon_admin(salon_id):
+    try:
+        s_obj_id = ObjectId(salon_id)
+    except:
+        return jsonify({"mensaje": "ID de salón inválido"}), 400
+    
+    result = db.salones.delete_one({'_id': s_obj_id})
+    if result.deleted_count > 0:
+        return jsonify({"message": "Salón eliminado."}), 200
+    return jsonify({"mensaje": "Salón no encontrado."}), 404
+
+
+
+
+
+
+@banquet_admin_bp.route('/notifications', methods=['GET'])
+@roles_required(allowed_roles=['admin_banquetes'])
+def get_notifications():
+    
+    query = {}
+    is_read_filter = request.args.get('is_read')
+    if is_read_filter is not None:
+        query['is_read'] = is_read_filter.lower() == 'true'
+        
+    notifications_cursor = db.notifications.find(query).sort("timestamp", -1) 
+    
+    
+    notif_list = [Base._Base__remove_oid(n) for n in notifications_cursor]
+    return jsonify(notif_list), 200 
+
+@banquet_admin_bp.route('/notifications/<string:notification_id>/read', methods=['PUT'])
+@roles_required(allowed_roles=['admin_banquetes'])
+def mark_notification_as_read(notification_id):
+    try:
+        notif_obj_id = ObjectId(notification_id)
+    except:
+        return jsonify({"mensaje": "ID de notificación inválido"}), 400
+
+    result = db.notifications.update_one(
+        {'_id': notif_obj_id},
+        {'$set': {'is_read': True}}
+    )
+    if result.modified_count > 0:
+        return jsonify({"message": "Notification marked as read."}), 200 
+    
+    return jsonify({"mensaje": "Notificación no encontrada o ya marcada como leída"}), 404
+
+
+
+
+
+
+
+
+
+
+

@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from bson import ObjectId
-from model.Base import Base
+from models.Base import Base
 
 @dataclass(kw_only=True)
 class User(Base):
@@ -9,6 +9,8 @@ class User(Base):
     password: str
     role: str
     nombre: str
+
+    _id: ObjectId|str = None
 
 
     __collection__ = "usuarios"

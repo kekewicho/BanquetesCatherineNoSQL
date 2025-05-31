@@ -3,13 +3,12 @@ from config.conexion_mongo import db
 from dataclasses import dataclass
 from bson import ObjectId
 
-@dataclass(kw_only=True)
+
 class Base:
     '''
     Clase base que abstrae los atributos y metodos utilitarios
     '''
-
-    _id: ObjectId|str = None
+   
 
 
     def __post_init__(self):
@@ -35,19 +34,26 @@ class Base:
     
     def save(self):
 
-        if self._id:
-            print(self._id)
-            print("Se modifica")
-            result = db[self.__collection__].update_one({'_id':self._id})
+        if not self._id is None:
+
+            result = db[self.__collection__].update_one({'_id':self._id}, {'$set': self.__dict__})
         
             return result.modified_count
         
         else:
-            print("Se modifica")
 
-            result = db[self.__collection__].insert_one(self.__dict__)
+            payload = self.__dict__.copy()
 
-            return result.inserted_id
+            del payload['_id']
+
+            result = db[self.__collection__].insert_one(payload)
+
+            newId = result.inserted_id
+
+            self._id = newId
+
+
+            return newId
 
 
     
