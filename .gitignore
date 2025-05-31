@@ -51,3 +51,7 @@ yarn.lock
 # Archivos de tipo
 *.tsbuildinfo
 
+
+
+*.pyc
+__pycache__

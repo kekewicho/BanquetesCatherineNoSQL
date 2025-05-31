@@ -2,9 +2,11 @@ from dataclasses import dataclass
 from bson import ObjectId
 from api.model.User import User
 from api.model.Salon import Salon
+from model.Base import Base
+
 
 @dataclass(kw_only=True)
-class Ingrediente:
+class Ingrediente(Base):
 
     descripcion: str
     unidad: str
@@ -12,7 +14,7 @@ class Ingrediente:
     __collection__ = "ingredientes"
 
 @dataclass(kw_only=True)
-class Platillo:
+class Platillo(Base):
 
     nombre: str
     descripcion: str
@@ -20,19 +22,23 @@ class Platillo:
     precio: float
     thumbnail: str
     ingredientes: list[dict]
+    # [{
+    # ingrediente: OID(tal),
+    # qty: 3
+    # }]
 
     __collection__ = "platillos"
 
 @dataclass(kw_only=True)
-class Evento:
+class Evento(Base):
 
     fecha: str
     tipo: str
     descripcion: str
-    menu: list[dict | Platillo]
-    plantilla: list[dict | User]
-    salon: dict | Salon
-    invitados: list[dict]
+    menu: list[str|ObjectId]
+    plantilla: list[str|ObjectId]
+    salon: str | ObjectId
+    invitados: int
     validated: bool
 
     __collection__ = "eventos"
