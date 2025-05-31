@@ -13,7 +13,7 @@ def login():
 
     user_doc = db.usuarios.find_one({"usuario": data['usuario']})
 
-    if user_doc and check_password_hash(user_doc['password'], data['password']):
+    if user_doc and (user_doc['password'] == data['password']):
         # Passwords match
         user_obj = User(**user_doc) # Create User instance
         session['user'] = user_obj.json() # Store user data in session, using model's json()
