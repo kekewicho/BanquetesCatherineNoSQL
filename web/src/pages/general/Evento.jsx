@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { fetchEventById } from '../../services/eventos.service';
+import { fetchEventById, updateEvent } from '../../services/eventos.service';
 import { formatDate } from '../../utils/date.utils';
 import { Image } from '../../components/atoms/image/Image';
+import { fetchAvailableStaffByDate } from "../../services/staff.services";
 
 const LoadingSpinner = () => (
     <div className="d-flex justify-content-center align-items-center" style={{ minHeight: '200px' }}>
@@ -23,6 +24,9 @@ export const EventoDetalle = ({ scope }) => {
     const [event, setEvent] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
+    const [availableStaff, setAvailableStaff] = useState([]);
+    const [selectedStaffId, setSelectedStaffId] = useState(''); // Para el dropdown de selección
+    const [isUpdating, setIsUpdating] = useState(false);
 
     useEffect(() => {
         const loadEvent = async () => {
@@ -37,6 +41,11 @@ export const EventoDetalle = ({ scope }) => {
                 const eventData = await fetchEventById(eventId);
                 if (eventData) {
                     setEvent(eventData);
+
+                    const availableStaff = fetchAvailableStaffByDate(eventData.fecha);
+                    const currentPlantillaIds = new Set(eventData.plantilla?.map(s => s._id) || []);
+                    setAvailableStaff(availableStaff.filter(s => !currentPlantillaIds.has(s._id)));
+
                 } else {
                     setError(`No se encontró ningún evento con el ID: ${eventId}`);
                 }
@@ -50,6 +59,45 @@ export const EventoDetalle = ({ scope }) => {
 
         loadEvent();
     }, [eventId]);
+
+
+    const handleAddStaffToPlantilla = async () => {
+        if (!selectedStaffId || !event) return;
+
+        const staffToAdd = availableStaff.find(s => s._id === selectedStaffId);
+        if (!staffToAdd) {
+            alert("Personal seleccionado no válido.");
+            return;
+        }
+
+        // IDs de la plantilla actual + el nuevo ID
+        const currentPlantillaIds = event.plantilla?.map(s => s._id) || [];
+        const newPlantillaIds = [...new Set([...currentPlantillaIds, selectedStaffId])];
+
+        setIsUpdating(true);
+        setError(null);
+        try {
+            const updatedEventData = await updateEvent(eventId, { plantilla: newPlantillaIds });
+            if (updatedEventData) {
+
+                setEvent(prevEvento => ({
+                    ...prevEvento,
+                    // Si el backend devuelve el evento enriquecido, usarlo directamente:
+                    // ...updatedEventData,
+                    plantilla: [...(prevEvento.plantilla || []), staffToAdd] // Simulación de enriquecimiento local
+                }));
+                setAvailableStaff(prev => prev.filter(s => s._id !== selectedStaffId)); // Quitar de disponibles
+                setSelectedStaffId(''); // Resetear selección
+                alert("Personal agregado exitosamente (simulado).");
+            } else {
+                setError("No se pudo actualizar la plantilla del evento.");
+            }
+        } catch (err) {
+            setError(err.message || "Error al agregar personal a la plantilla.");
+        } finally {
+            setIsUpdating(false);
+        }
+    };
 
     if (loading) return <LoadingSpinner />;
     if (error) return <ErrorMessage message={error} />;
@@ -110,8 +158,35 @@ export const EventoDetalle = ({ scope }) => {
                                     </ul>
                                 ) : <p>No hay personal asignado.</p>
                             }
+
+                            <div className="mt-4">
+                                <h3>Agregar Personal a Plantilla</h3>
+                                {availableStaff.length > 0 ? (
+                                    <div className="input-group mb-3">
+                                        <select
+                                            className="form-select"
+                                            value={selectedStaffId}
+                                            onChange={(e) => setSelectedStaffId(e.target.value)}
+                                        >
+                                            <option value="">Seleccionar personal...</option>
+                                            {availableStaff.map(staff => (
+                                                <option key={staff._id} value={staff._id}>
+                                                    {staff.nombre} {staff.apellido || ''} ({staff.role})
+                                                </option>
+                                            ))}
+                                        </select>
+                                        <button className="btn btn-primary" onClick={handleAddStaffToPlantilla} disabled={!selectedStaffId || isUpdating}>
+                                            {isUpdating ? 'Agregando...' : 'Agregar a Plantilla'}
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <p>No hay personal adicional disponible para la fecha de este evento o todo el personal disponible ya ha sido asignado.</p>
+                                )}
+                            </div>
                         </>
                     }
+
+
                 </div>
             </div>
         </div>

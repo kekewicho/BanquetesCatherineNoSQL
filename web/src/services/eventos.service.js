@@ -148,3 +148,30 @@ export const fetchEventById = (eventId) => {
         return null; // Simula un 404 Not Found
     }
 };
+
+
+
+
+export const updateEvent = async (eventId, eventData) => {
+    // TODO: Descomentar y probar cuando la API esté lista.
+    // try {
+    //     const updatedEvent = await apiService.put(`/banquet-admin/events/${eventId}`, eventData);
+    //     return updatedEvent;
+    // } catch (error) {
+    //     console.error(`Error updating event with ID ${eventId}:`, error);
+    //     // Considerar manejo específico de errores (ej. 404, 400)
+    //     // throw error; // O relanzar para que el componente lo maneje
+    //     return null;
+    // }
+
+    console.warn(`updateEvent está usando una simulación para el evento con ID: ${eventId}. Descomenta el código de API para uso real.`);
+    // Simular una actualización exitosa devolviendo los datos enviados con el _id del evento
+    // En una implementación real, el backend devolvería el evento completo y enriquecido.
+    await new Promise(resolve => setTimeout(resolve, 500)); // Simular demora de red
+
+    // Para la simulación, asumimos que eventData contiene la plantilla actualizada con IDs.
+    // Devolvemos un objeto que se parezca al evento actualizado.
+    // Lo ideal sería tener el evento original y fusionar los cambios.
+    // Por ahora, solo devolvemos un objeto simple para indicar éxito.
+    return { _id: eventId, ...eventData, message: "Evento actualizado (simulado)" };
+};
