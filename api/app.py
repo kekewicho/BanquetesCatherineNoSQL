@@ -1,11 +1,11 @@
-# App.ipynb (celda 1)
 from flask import Flask
-from controller.UsuarioController import usuario_bp
+from routes import register_blueprints
 
 app = Flask(__name__)
-app.register_blueprint(usuario_bp)
 
-print(app.url_map)
+register_blueprints(app)
+
+
 
 if __name__ == "__main__":
-    app.run()
+    app.run(debug=True)

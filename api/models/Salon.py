@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from bson import ObjectId
-from model.Base import Base
+from models.Base import Base
 
 @dataclass(kw_only=True)
 class Salon(Base):
