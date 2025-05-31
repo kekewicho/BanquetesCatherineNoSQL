@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from bson import ObjectId
-from api.model.User import User
-from api.model.Salon import Salon
+from model.User import User
+from model.Salon import Salon
 
 @dataclass(kw_only=True)
 class Ingrediente:
