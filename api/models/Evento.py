@@ -11,6 +11,7 @@ from models.User import Cliente
 @dataclass(kw_only=True)
 class Ingrediente(Base):
 
+    _id: ObjectId | str = None
     descripcion: str
     unidad: str
 
@@ -19,6 +20,7 @@ class Ingrediente(Base):
 @dataclass(kw_only=True)
 class Platillo(Base):
 
+    _id: ObjectId | str = None
     nombre: str
     descripcion: str
     tipo_platillo: str
@@ -33,7 +35,7 @@ class Platillo(Base):
     __collection__ = "platillos"
 
 @dataclass(kw_only=True)
-class TempPlatilloForEnrich(Base): # Temporary for showing enrichment structure
+class TempPlatilloForEnrich(Base): 
     nombre: str = ""
     descripcion: str = ""
     tipo_platillo: str = ""
@@ -62,48 +64,56 @@ class TempPlatilloForEnrich(Base): # Temporary for showing enrichment structure
 
 
 @dataclass(kw_only=True)
-class Evento(Base): #
+class Evento(Base): 
+    _id: ObjectId | str = None
     fecha: str
     tipo: str
     descripcion: str
-    menu: list[str|ObjectId] # List of Platillo ObjectIds
-    plantilla: list[str|ObjectId] # List of User (staff) ObjectIds
-    salon: str | ObjectId # Salon ObjectId
-    invitados: int
-    validated: bool
-    cliente_id: str | ObjectId = None # Added based on README examples
+    menu: list[str | ObjectId] = field(default_factory=list)         # Lista de IDs de platillos
+    plantilla: list[str | ObjectId] = field(default_factory=list)    # Lista de IDs de colaboradores
+    salon: str | ObjectId = None                                     # ID del salón
+    invitados: int = 0
+    validated: bool = True
+    cliente_id: str | ObjectId = None                                # ID del cliente
 
     _id = str | ObjectId = None
 
     __collection__ = "eventos"
 
+    def __post_init__(self):
+        if isinstance(self._id, str):
+            self._id = ObjectId(self._id)
+        if isinstance(self.salon, str):
+            self.salon = ObjectId(self.salon)
+        if isinstance(self.cliente_id, str):
+            self.cliente_id = ObjectId(self.cliente_id)
+        self.menu = [ObjectId(p) if isinstance(p, str) else p for p in self.menu]
+        self.plantilla = [ObjectId(p) if isinstance(p, str) else p for p in self.plantilla]
+
     def json(self, enrich=True):
-        # Get the basic dictionary with ObjectIds converted to strings
-        data = super().json() # Base.json() handles __remove_oid
+        data = super().json()
 
         if enrich:
-            # Enrich Salon
+            # Enriquecer salón
             if data.get('salon') and isinstance(self.salon, (str, ObjectId)):
                 salon_doc = db[Salon.__collection__].find_one({'_id': ObjectId(self.salon)})
                 data['salon'] = Salon(**salon_doc).json() if salon_doc else None
 
-            # Enrich Menu (Platillos)
+            # Enriquecer menú
             if data.get('menu') and self.menu:
                 enriched_menu_list = []
-                for p_id in self.menu: # self.menu should be list of ObjectIds or strs
+                for p_id in self.menu:
                     p_doc = db[TempPlatilloForEnrich.__collection__].find_one({'_id': ObjectId(p_id)})
                     if p_doc:
-                        # Use the Platillo's own json method, assuming it also enriches its ingredients
                         enriched_menu_list.append(TempPlatilloForEnrich(**p_doc).json(enrich_ingredients=True))
                 data['menu'] = enriched_menu_list
-            
-            # Enrich Plantilla (Staff - Users)
+
+            # Enriquecer plantilla (staff)
             if data.get('plantilla') and self.plantilla:
                 enriched_plantilla_list = []
                 for staff_id in self.plantilla:
                     staff_doc = db[User.__collection__].find_one({'_id': ObjectId(staff_id)})
                     if staff_doc:
-                        # Selectively return fields for staff display
                         enriched_plantilla_list.append({
                             "_id": str(staff_doc["_id"]),
                             "nombre": staff_doc.get("nombre"),
@@ -112,11 +122,9 @@ class Evento(Base): #
                         })
                 data['plantilla'] = enriched_plantilla_list
 
-            # Enrich Cliente
             if data.get('cliente_id') and self.cliente_id:
-                # Ensure __collection__ is set in Cliente or User if it's a shared collection
                 client_doc = db[User.__collection__].find_one({'_id': ObjectId(self.cliente_id), 'role': 'cliente'})
                 if client_doc:
                     data['cliente'] = Cliente(**client_doc).json()
-                # data.pop('cliente_id', None) # Optional: remove after enriching
+
         return data
